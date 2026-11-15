@@ -1,0 +1,173 @@
+
+name: Build Custom MRS
+
+on:
+  # 每天北京时间 06:00 自动执行
+  schedule:
+    - cron: '0 22 * * *'
+
+  # main 分支源文件发生变化时自动执行
+  push:
+    branches:
+      - main
+    paths:
+      - 'aicoin.txt'
+      - 'build.py'
+      - '.github/workflows/build.yml'
+
+  # 支持 GitHub 网页手动执行
+  workflow_dispatch:
+
+# 允许 GitHub Actions 推送文件
+permissions:
+  contents: write
+
+# 防止同一工作流重复并发执行
+concurrency:
+  group: custom-mrs-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # =========================
+      # 1. 获取 main 分支源文件
+      # =========================
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # =========================
+      # 2. 安装 Python
+      # =========================
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # =========================
+      # 3. 下载 Mihomo
+      # =========================
+
+      - name: Download Mihomo
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+
+          RELEASE=$(curl -fsSL "$API")
+
+          URL=$(echo "$RELEASE" | jq -r '
+            [.assets[]
+              | select(.name | test("^mihomo-linux-amd64-compatible-v.*\\.gz$"))
+            ][0].browser_download_url // empty
+          ')
+
+          # 如果没有 compatible 版本，使用普通 amd64 版本
+          if [ -z "$URL" ]; then
+            URL=$(echo "$RELEASE" | jq -r '
+              [.assets[]
+                | select(.name | test("^mihomo-linux-amd64-v.*\\.gz$"))
+              ][0].browser_download_url // empty
+            ')
+          fi
+
+          if [ -z "$URL" ]; then
+            echo "未找到 Mihomo Linux amd64 下载文件"
+            exit 1
+          fi
+
+          echo "下载地址：$URL"
+
+          curl -fL "$URL" -o mihomo.gz
+
+          gzip -t mihomo.gz
+          gzip -dc mihomo.gz > mihomo
+
+          chmod +x mihomo
+
+          ./mihomo -v
+
+      # =========================
+      # 4. 构建 MRS
+      # =========================
+
+      - name: Build MRS
+        env:
+          MIHOMO_BIN: ${{ github.workspace }}/mihomo
+        run: |
+          python build.py
+
+      # =========================
+      # 5. 检查生成文件
+      # =========================
+
+      - name: Verify MRS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s dist/gfw.mrs
+
+          echo "MRS 文件生成成功"
+          ls -lh dist/gfw.mrs
+
+      # =========================
+      # 6. 获取 mrs 分支
+      # =========================
+
+      - name: Checkout mrs
+        uses: actions/checkout@v4
+        with:
+          ref: mrs
+          path: mrs-branch
+          fetch-depth: 0
+
+      # =========================
+      # 7. 发布 MRS
+      # =========================
+
+      - name: Publish MRS
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd mrs-branch
+
+          # 清理 mrs 分支原有文件
+          git rm -r -f --ignore-unmatch .
+
+          # 复制新生成的 MRS
+          cp ../dist/gfw.mrs ./gfw.mrs
+
+          # 设置 Git 身份
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 提交并推送
+          git add gfw.mrs
+
+          if git diff --cached --quiet; then
+            echo "MRS 内容没有变化，无需提交"
+          else
+            git commit -m "Update gfw.mrs"
+            git push origin HEAD:mrs
+          fi
+
+      # =========================
+      # 8. 完成报告
+      # =========================
+
+      - name: Build Summary
+        if: success()
+        run: |
+          echo "MRS 构建及发布成功"
+          echo "目标分支：mrs"
+          echo "目标文件：gfw.mrs"
+          echo "定时任务：北京时间每天 06:00"
