@@ -118,8 +118,9 @@ jobs:
           echo "MRS 文件生成成功"
           ls -lh dist/gfw.mrs
 
+
       # =========================
-      # 额外验证：反向解析 MRS
+      # 额外验证：全部 TXT 域名
       # =========================
 
       - name: Verify MRS Rules
@@ -127,42 +128,106 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 将 MRS 反向转换为 TXT
+          # MRS 反向转换成 TXT
           ./mihomo convert-ruleset domain mrs \
             dist/gfw.mrs dist/verified-rules.txt
 
-          echo "===== MRS 中实际保存的规则 ====="
+          echo "===== MRS 实际保存的规则 ====="
           cat dist/verified-rules.txt
 
-          # 确认规则完整保留
-          grep -Fxq '+.aicoin.com' dist/verified-rules.txt
-
-          echo "===== 域名匹配测试 ====="
-
+          # 逐条验证 TXT 中的全部域名
           python - <<'PY'
-          base = "aicoin.com"
-          tests = {
-              "aicoin.com": True,
-              "www.aicoin.com": True,
-              "api.aicoin.com": True,
-              "m.aicoin.com": True,
-              "other.com": False,
-          }
+          from pathlib import Path
 
-          for domain, expected in tests.items():
-              matched = (
-                  domain == base
-                  or domain.endswith("." + base)
-              )
+          def load_rules(path):
+              rules = []
+              seen = set()
 
-              status = "PASS" if matched == expected else "FAIL"
-              print(f"{domain}: {status} (匹配={matched})")
+              for line in path.read_text(encoding="utf-8-sig").splitlines():
+                  rule = line.strip().lower()
 
-              if matched != expected:
-                  raise SystemExit("域名匹配测试失败")
+                  if not rule or rule.startswith("#"):
+                      continue
 
+                  if rule in seen:
+                      raise SystemExit(f"发现重复规则：{rule}")
+
+                  seen.add(rule)
+                  rules.append(rule)
+
+              return rules
+
+          source = load_rules(Path("aicoin.txt"))
+          converted = load_rules(Path("dist/verified-rules.txt"))
+
+          source_set = set(source)
+          converted_set = set(converted)
+
+          missing = source_set - converted_set
+          extra = converted_set - source_set
+
+          if missing:
+              raise SystemExit(f"MRS 缺少规则：{sorted(missing)}")
+
+          if extra:
+              raise SystemExit(f"MRS 出现额外规则：{sorted(extra)}")
+
+          print("===== 全部规则均已保存在 MRS =====")
+          print(f"规则数量：{len(source)}")
+
+          # 匹配逻辑
+          def matches(rule, domain):
+              domain = domain.lower()
+
+              if rule.startswith("+."):
+                  suffix = rule[2:]
+                  return (
+                      domain == suffix
+                      or domain.endswith("." + suffix)
+                  )
+
+              return domain == rule
+
+          # 逐条生成测试
+          total = 0
+
+          for rule in source:
+              wildcard = rule.startswith("+.")
+              domain = rule[2:] if wildcard else rule
+
+              tests = [
+                  (domain, True),
+                  (f"www.{domain}", wildcard),
+                  (f"api.{domain}", wildcard),
+                  (f"m.{domain}", wildcard),
+                  (f"api.www.{domain}", wildcard),
+                  (f"other-{domain}", False),
+              ]
+
+              print(f"\n===== 测试规则：{rule} =====")
+
+              for host, expected in tests:
+                  actual = matches(rule, host)
+
+                  if actual != expected:
+                      print(f"FAIL: {host}")
+                      raise SystemExit(
+                          f"规则 {rule} 匹配测试失败"
+                      )
+
+                  status = "PASS"
+                  result = "匹配" if actual else "不匹配"
+
+                  print(f"{host}: {status} ({result})")
+                  total += 1
+
+          print("\n================================")
           print("ALL TESTS PASSED")
+          print(f"规则总数：{len(source)}")
+          print(f"测试总数：{total}")
+          print("================================")
           PY
+
 
       # =========================
       # 6. 获取 mrs 分支
