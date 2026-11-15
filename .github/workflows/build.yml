@@ -119,6 +119,52 @@ jobs:
           ls -lh dist/gfw.mrs
 
       # =========================
+      # 额外验证：反向解析 MRS
+      # =========================
+
+      - name: Verify MRS Rules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 将 MRS 反向转换为 TXT
+          ./mihomo convert-ruleset domain mrs \
+            dist/gfw.mrs dist/verified-rules.txt
+
+          echo "===== MRS 中实际保存的规则 ====="
+          cat dist/verified-rules.txt
+
+          # 确认规则完整保留
+          grep -Fxq '+.aicoin.com' dist/verified-rules.txt
+
+          echo "===== 域名匹配测试 ====="
+
+          python - <<'PY'
+          base = "aicoin.com"
+          tests = {
+              "aicoin.com": True,
+              "www.aicoin.com": True,
+              "api.aicoin.com": True,
+              "m.aicoin.com": True,
+              "other.com": False,
+          }
+
+          for domain, expected in tests.items():
+              matched = (
+                  domain == base
+                  or domain.endswith("." + base)
+              )
+
+              status = "PASS" if matched == expected else "FAIL"
+              print(f"{domain}: {status} (匹配={matched})")
+
+              if matched != expected:
+                  raise SystemExit("域名匹配测试失败")
+
+          print("ALL TESTS PASSED")
+          PY
+
+      # =========================
       # 6. 获取 mrs 分支
       # =========================
 
