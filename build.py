@@ -18,7 +18,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 
-INPUT_FILE = ROOT / "aicoin.txt"
+INPUT_FILE = ROOT / "wangzhi.txt"
 OUTPUT_FILE = ROOT / "dist" / "gfw.mrs"
 
 MIHOMO = os.environ.get("MIHOMO_BIN", "mihomo")
