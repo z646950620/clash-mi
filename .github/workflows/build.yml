@@ -11,7 +11,7 @@ on:
     branches:
       - main
     paths:
-      - 'aicoin.txt'
+      - 'wangzhi.txt'
       - 'build.py'
       - '.github/workflows/build.yml'
 
@@ -157,7 +157,7 @@ jobs:
 
               return rules
 
-          source = load_rules(Path("aicoin.txt"))
+          source = load_rules(Path("wangzhi.txt"))
           converted = load_rules(Path("dist/verified-rules.txt"))
 
           source_set = set(source)
