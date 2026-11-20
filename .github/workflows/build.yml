@@ -56,12 +56,30 @@ jobs:
 
       - name: Download Mihomo
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 
-          RELEASE=$(curl -fsSL "$API")
+          echo "===== 1. 获取 Mihomo 最新版本 ====="
+
+          RELEASE=$(curl -fsSL \
+            --retry 3 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            --connect-timeout 20 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "User-Agent: zhangman-mrs-builder" \
+            "$API")
+
+          VERSION=$(echo "$RELEASE" | jq -r '.tag_name')
+          echo "Mihomo 最新版本：$VERSION"
+
+          echo "===== 2. 查找 Linux amd64 下载文件 ====="
 
           URL=$(echo "$RELEASE" | jq -r '
             [.assets[]
@@ -79,20 +97,38 @@ jobs:
           fi
 
           if [ -z "$URL" ]; then
-            echo "未找到 Mihomo Linux amd64 下载文件"
+            echo "ERROR: 未找到 Mihomo Linux amd64 下载文件"
+            echo "当前 Release 资产列表："
+            echo "$RELEASE" | jq -r '.assets[].name'
             exit 1
           fi
 
           echo "下载地址：$URL"
 
-          curl -fL "$URL" -o mihomo.gz
+          echo "===== 3. 下载 Mihomo ====="
+
+          curl -fL \
+            --retry 3 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            --connect-timeout 20 \
+            --max-time 300 \
+            -H "User-Agent: zhangman-mrs-builder" \
+            "$URL" \
+            -o mihomo.gz
+
+          echo "===== 4. 验证并解压 ====="
 
           gzip -t mihomo.gz
           gzip -dc mihomo.gz > mihomo
 
           chmod +x mihomo
 
+          echo "===== 5. 检查 Mihomo 版本 ====="
+
           ./mihomo -v
+
+          echo "Mihomo 下载及验证成功"
 
       # =========================
       # 4. 构建 MRS
