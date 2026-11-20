@@ -2,3 +2,4 @@
 +.shandianpro.com
 +.forex.com
 +.onenote.com
++.zhangman.com
